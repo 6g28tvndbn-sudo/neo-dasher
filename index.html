@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Geometry Dash iPad - Ultra Neon Creator Edition</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+  body { 
+    margin: 0; 
+    background: radial-gradient(circle, #1a1a2e 0%, #0f0f1a 100%); 
+    display: flex; 
+    flex-direction: column;
+    justify-content: center; 
+    align-items: center; 
+    height: 100vh; 
+    color: white; 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    touch-action: none; 
+  }
+  canvas { 
+    background-color: #0b0c10; 
+    border: 3px solid #00ffff;
+    border-radius: 8px;
+    box-shadow: 0 0 35px rgba(0, 255, 255, 0.4), inset 0 0 20px rgba(0, 255, 255, 0.1);
+    max-width: 95vw;
+    max-height: 75vh;
+  }
+  p { margin: 8px 0; font-size: 15px; text-align: center; color: #66fcf1; text-shadow: 0 0 5px rgba(102,252,241,0.5); }
+</style>
+</head>
+<body>
+  <p>★ NEON EDITION ★ High Performance Graphics with Safe Ship Floors & Full Level Editor</p>
+  <canvas id="gameCanvas" width="950" height="480"></canvas>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  let gameState = "MENU"; 
+  let playMode = "NORMAL"; 
+  let currentDifficulty = "Easy";
+  let speedSetting = 5;
+  let spawnRateSetting = 140; 
+
+  // Solid, heavy physics configuration (Untouched)
+  let player = { 
+    x: 120, y: 380, size: 50, 
+    velocityY: 0, 
+    gravity: 0.78,          
+    jumpPower: -16.2,       
+    isGrounded: false,
+    gameMode: "CUBE",       
+    waveDirection: 1,       
+    waveSpeedY: 6,
+    shipThrust: -2.1,       
+    shipGravity: 0.42,      
+    isHolding: false,
+    rotation: 0
+  };
+
+  let obstacles = [];
+  let waveTrail = []; 
+  let visualParticles = []; // Dynamic dust trails for juice
+  let score = 0;
+  let spawnTimer = 0;
+  
+  let wavePortalSpawned = false; 
+  let midCubePortalSpawned = false;
+  let shipPortalSpawned = false;
+  let finalCubePortalSpawned = false;
+  let finishLineSpawned = false;
+
+  let customMap = []; 
+  let editorScrollX = 0; 
+  let selectedTool = "block"; 
+  
+  let tools = [
+    { id: "delete", name: "✕ ERASE", color: "#ff4757" },
+    { id: "block", name: "■ BLOCK", color: "#ffffff" },
+    { id: "spike", name: "▲ SPIKE", color: "#ff4444" },
+    { id: "ceilSpike", name: "▼ ROOF SPK", color: "#cc3333" },
+    { id: "pad", name: "▬ JUMP PAD", color: "#ffeb3b" }, 
+    { id: "wavePortal", name: "⧉ WAVE P.", color: "#ff00ff" },
+    { id: "shipPortal", name: "⧉ SHIP P.", color: "#ff9f1c" },
+    { id: "cubePortal", name: "⧉ CUBE P.", color: "#00ffff" },
+    { id: "finish", name: "🏁 FINISH", color: "#ffff00" }
+  ];
+
+  let buttons = {
+    easy: { x: 100, y: 260, w: 150, h: 60 },
+    medium: { x: 290, y: 260, w: 150, h: 60 },
+    hard: { x: 480, y: 260, w: 150, h: 60 },
+    editorMenu: { x: 670, y: 260, w: 180, h: 60 },
+    exitEditor: { x: 20, y: 10, w: 100, h: 35 },
+    playTest: { x: 140, y: 10, w: 140, h: 35 },
+    scrollLeft: { x: 400, y: 440, w: 130, h: 35 },
+    scrollRight: { x: 550, y: 440, w: 130, h: 35 }
+  };
+
+  function handlePress(e) {
+    if (e) e.preventDefault();
+    player.isHolding = true;
+
+    let rect = canvas.getBoundingClientRect();
+    let touch = e.touches ? e.touches[0] : e;
+    let clickX = ((touch.clientX - rect.left) / rect.width) * canvas.width;
+    let clickY = ((touch.clientY - rect.top) / rect.height) * canvas.height;
+
+    if (gameState === "MENU") {
+      if (clickX >= buttons.easy.x && clickX <= buttons.easy.x + buttons.easy.w &&
+          clickY >= buttons.easy.y && clickY <= buttons.easy.y + buttons.easy.h) {
+        startGame("Easy", 5.2, 140);
+      }
+      else if (clickX >= buttons.medium.x && clickX <= buttons.medium.x + buttons.medium.w &&
+          clickY >= buttons.medium.y && clickY <= buttons.medium.y + buttons.medium.h) {
+        startGame("Medium", 6.5, 120); 
+      }
+      else if (clickX >= buttons.hard.x && clickX <= buttons.hard.x + buttons.hard.w &&
+          clickY >= buttons.hard.y && clickY <= buttons.hard.y + buttons.hard.h) {
+        startGame("Hard", 7.8, 100); 
+      }
+      else if (clickX >= buttons.editorMenu.x && clickX <= buttons.editorMenu.x + buttons.editorMenu.w &&
+               clickY >= buttons.editorMenu.y && clickY <= buttons.editorMenu.y + buttons.editorMenu.h) {
+        gameState = "EDITOR";
+      }
+      return;
+    }
+
+    if (gameState === "EDITOR") {
+      if (clickX >= buttons.exitEditor.x && clickX <= buttons.exitEditor.x + buttons.exitEditor.w &&
+          clickY >= buttons.exitEditor.y && clickY <= buttons.exitEditor.y + buttons.exitEditor.h) {
+        gameState = "MENU";
+        return;
+      }
+      if (clickX >= buttons.playTest.x && clickX <= buttons.playTest.x + buttons.playTest.w &&
+          clickY >= buttons.playTest.y && clickY <= buttons.playTest.y + buttons.playTest.h) {
+        startCustomPlay();
+        return;
+      }
+      if (clickX >= buttons.scrollLeft.x && clickX <= buttons.scrollLeft.x + buttons.scrollLeft.w &&
+          clickY >= buttons.scrollLeft.y && clickY <= buttons.scrollLeft.y + buttons.scrollLeft.h) {
+        editorScrollX = Math.max(0, editorScrollX - 240);
+        return;
+      }
+      if (clickX >= buttons.scrollRight.x && clickX <= buttons.scrollRight.x + buttons.scrollRight.w &&
+          clickY >= buttons.scrollRight.y && clickY <= buttons.scrollRight.y + buttons.scrollRight.h) {
+        editorScrollX += 240;
+        return;
+      }
+
+      if (clickX >= 10 && clickX <= 145 && clickY >= 55) {
+        let toolIndex = Math.floor((clickY - 55) / 44);
+        if (toolIndex >= 0 && toolIndex < tools.length) {
+          selectedTool = tools[toolIndex].id;
+        }
+        return;
+      }
+
+      if (clickX > 160 && clickY > 50 && clickY < 430) {
+        let worldX = clickX - 160 + editorScrollX;
+        let snapX = Math.floor(worldX / 40) * 40;
+        let snapY = Math.floor(clickY / 40) * 40;
+
+        for (let i = customMap.length - 1; i >= 0; i--) {
+          if (customMap[i].x === snapX && customMap[i].y === snapY) {
+            customMap.splice(i, 1);
+          }
+        }
+
+        if (selectedTool !== "delete") {
+          let w = 40, h = 40;
+          if (selectedTool === "pad") { w = 40; h = 15; snapY = 415; } 
+          if (selectedTool === "finish" || selectedTool.includes("Portal")) { w = 40; h = 380; snapY = 50; }
+          
+          customMap.push({
+            type: selectedTool,
+            x: snapX,
+            y: snapY,
+            w: w,
+            h: h
+          });
+        }
+      }
+      return;
+    }
+
+    if (gameState === "GAMEOVER") {
+      if (playMode === "CUSTOM") gameState = "EDITOR"; 
+      else gameState = "MENU";
+    } else if (gameState === "VICTORY") {
+      gameState = "MENU";
+    } 
+    else if (gameState === "PLAYING") {
+      if (player.gameMode === "CUBE" && player.isGrounded) {
+        player.velocityY = player.jumpPower;
+        player.isGrounded = false;
+        createCrashParticles(player.x + 25, player.y + 50, '#00ffff', 12);
+      } else if (player.gameMode === "WAVE") {
+        player.waveDirection *= -1; 
+      }
+    }
+  }
+
+  function handleRelease(e) {
+    if (e) e.preventDefault();
+    player.isHolding = false;
+  }
+
+  window.addEventListener('touchstart', handlePress, { passive: false });
+  window.addEventListener('touchend', handleRelease, { passive: false });
+  window.addEventListener('mousedown', handlePress);
+  window.addEventListener('mouseup', handleRelease);
+
+  function startGame(difficulty, speed, spawnRate) {
+    playMode = "NORMAL";
+    currentDifficulty = difficulty;
+    speedSetting = speed;
+    spawnRateSetting = spawnRate;
+    resetPlayerState();
+    
+    obstacles = [];
+    waveTrail = [];
+    visualParticles = [];
+    score = 0;
+    spawnTimer = 0;
+    
+    wavePortalSpawned = false;
+    midCubePortalSpawned = false;
+    shipPortalSpawned = false;
+    finalCubePortalSpawned = false;
+    finishLineSpawned = false;
+    
+    gameState = "PLAYING";
+  }
+
+  function startCustomPlay() {
+    playMode = "CUSTOM";
+    speedSetting = 5.5;
+    resetPlayerState();
+    waveTrail = [];
+    visualParticles = [];
+    score = 0;
+
+    obstacles = [];
+    for (let item of customMap) {
+      obstacles.push({
+        type: item.type,
+        x: item.x + 300, 
+        y: item.y,
+        w: item.w,
+        h: item.h
+      });
+    }
+    obstacles.sort((a, b) => a.x - b.x);
+    gameState = "PLAYING";
+  }
+
+  function resetPlayerState() {
+    player.y = 380;
+    player.velocityY = 0;
+    player.isGrounded = false;
+    player.gameMode = "CUBE"; 
+    player.waveDirection = 1;
+    player.isHolding = false;
+    player.rotation = 0;
+  }
+
+  function createCrashParticles(x, y, color, count) {
+    for(let i=0; i<count; i++) {
+      visualParticles.push({
+        x: x, y: y,
+        vx: (Math.random() - 0.5) * 7,
+        vy: (Math.random() - 0.5) * 7,
+        size: Math.random() * 5 + 2,
+        color: color,
+        alpha: 1
+      });
+    }
+  }
+
+  function spawnChallengePattern() {
+    if (finishLineSpawned) return;
+    let startX = canvas.width;
+
+    if (score >= 6 && !wavePortalSpawned) {
+      obstacles.push({ type: 'wavePortal', x: startX, y: 50, w: 45, h: 380 });
+      wavePortalSpawned = true; return;
+    }
+    if (score >= 20 && !midCubePortalSpawned) {
+      obstacles.push({ type: 'cubePortal', x: startX, y: 50, w: 45, h: 380 });
+      midCubePortalSpawned = true; return;
+    }
+    if (score >= 35 && !shipPortalSpawned) {
+      obstacles.push({ type: 'shipPortal', x: startX, y: 50, w: 45, h: 380 });
+      shipPortalSpawned = true; return;
+    }
+    if (score >= 52 && !finalCubePortalSpawned) {
+      obstacles.push({ type: 'cubePortal', x: startX, y: 50, w: 45, h: 380 });
+      finalCubePortalSpawned = true; return;
+    }
+    if (score >= 68 && !finishLineSpawned) {
+      obstacles.push({ type: 'finish', x: startX, y: 50, w: 60, h: 380 });
+      finishLineSpawned = true; return;
+    }
+
+    let choice = Math.floor(Math.random() * 3);
+    if (player.gameMode === "CUBE") {
+      if (choice === 0) {
+        obstacles.push({ type: 'pad', x: startX, y: 415, w: 45, h: 15 });
+        obstacles.push({ type: 'spike', x: startX + 110, y: 390, w: 25, h: 40 });
+        obstacles.push({ type: 'spike', x: startX + 135, y: 390, w: 25, h: 40 });
+        obstacles.push({ type: 'spike', x: startX + 160, y: 390, w: 25, h: 40 });
+        obstacles.push({ type: 'spike', x: startX + 185, y: 390, w: 25, h: 40 });
+      } else if (choice === 1) {
+        obstacles.push({ type: 'block', x: startX, y: 280, w: 100, h: 25 });
+        obstacles.push({ type: 'spike', x: startX + 50, y: 390, w: 30, h: 40 });
+      } else {
+        obstacles.push({ type: 'spike', x: startX, y: 390, w: 25, h: 40 });
+        obstacles.push({ type: 'spike', x: startX + 25, y: 390, w: 25, h: 40 });
+        obstacles.push({ type: 'spike', x: startX + 50, y: 390, w: 25, h: 40 });
+        obstacles.push({ type: 'spike', x: startX + 75, y: 390, w: 25, h: 40 });
+      }
+    } 
+    else if (player.gameMode === "WAVE") {
+      if (choice === 0) {
+        obstacles.push({ type: 'spike', x: startX, y: 390, w: 40, h: 40 });
+        obstacles.push({ type: 'ceilSpike', x: startX + 160, y: 50, w: 40, h: 40 });
+      } else {
+        obstacles.push({ type: 'ceilSpike', x: startX, y: 50, w: 40, h: 40 });
+      }
+    }
+    else if (player.gameMode === "SHIP") {
+      if (choice === 0) {
+        obstacles.push({ type: 'block', x: startX, y: 160, w: 50, h: 120 });
+      } else {
+        obstacles.push({ type: 'spike', x: startX, y: 390, w: 45, h: 40 });
+      }
+    }
+  }
+
+  function drawNeonGrid() {
+    ctx.strokeStyle = "rgba(0, 255, 255, 0.05)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 40) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 40) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+    }
+  }
+
+  function update() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawNeonGrid();
+
+    // ==========================================
+    // 1. MENU SYSTEM GRAPHICS
+    // ==========================================
+    if (gameState === "MENU") {
+      ctx.shadowBlur = 20; ctx.shadowColor = '#00ffff';
+      ctx.fillStyle = '#00ffff'; ctx.font = 'bold 48px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('GD iPad Creator Edition', canvas.width / 2, 110);
+      
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff'; ctx.font = '20px sans-serif';
+      ctx.fillText('Select Track Difficulty to Begin:', canvas.width / 2, 180);
+
+      // Menu Buttons
+      let menuButtons = [
+        {b: buttons.easy, c: '#2ec4b6', text: 'Easy Track'},
+        {b: buttons.medium, c: '#ff9f1c', text: 'Medium Track'},
+        {b: buttons.hard, c: '#e71d36', text: 'Hard Track'},
+        {b: buttons.editorMenu, c: '#a29bfe', text: '🛠️ LEVEL EDITOR'}
+      ];
+
+      menuButtons.forEach(btn => {
+        let grad = ctx.createLinearGradient(btn.b.x, btn.b.y, btn.b.x, btn.b.y + btn.b.h);
+        grad.addColorStop(0, btn.c); grad.addColorStop(1, '#111');
+        ctx.fillStyle = grad;
+        ctx.fillRect(btn.b.x, btn.b.y, btn.b.w, btn.b.h);
+        ctx.strokeStyle = btn.c; ctx.lineWidth = 2;
+        ctx.strokeRect(btn.b.x, btn.b.y, btn.b.w, btn.b.h);
+        ctx.fillStyle = 'white'; ctx.font = 'bold 16px sans-serif';
+        ctx.fillText(btn.text, btn.b.x + btn.b.w/2, btn.b.y + 36);
+      });
+      ctx.textAlign = 'left'; 
+    } 
+
+    // ==========================================
+    // 2. LEVEL BUILDER / EDITOR DASHBOARD
+    // ==========================================
+    else if (gameState === "EDITOR") {
+      ctx.fillStyle = '#ff4757'; ctx.fillRect(buttons.exitEditor.x, buttons.exitEditor.y, buttons.exitEditor.w, buttons.exitEditor.h);
+      ctx.fillStyle = '#2ed573'; ctx.fillRect(buttons.playTest.x, buttons.playTest.y, buttons.playTest.w, buttons.playTest.h);
+      ctx.fillStyle = 'white'; ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('◀ LEAVE', buttons.exitEditor.x + 22, buttons.exitEditor.y + 22);
+      ctx.fillText('▶ TEST MAP', buttons.playTest.x + 28, buttons.playTest.y + 22);
+
+      ctx.fillStyle = '#66fcf1'; ctx.font = '15px sans-serif';
+      ctx.fillText(`Editor Camera Grid Offset: ${editorScrollX}px`, 310, 32);
+
+      // Sidebar Frame Layout
+      ctx.fillStyle = '#1f242d'; ctx.fillRect(10, 50, 140, 425);
+      ctx.strokeStyle = '#45f3ff'; ctx.strokeRect(10, 50, 140, 425);
+
+      for (let i = 0; i < tools.length; i++) {
+        let t = tools[i]; let ty = 54 + i * 44;
+        ctx.fillStyle = (selectedTool === t.id) ? 'rgba(0, 255, 255, 0.25)' : '#2c3440';
+        ctx.fillRect(15, ty, 130, 38);
+        ctx.strokeStyle = (selectedTool === t.id) ? '#00ffff' : '#4f5d73';
+        ctx.lineWidth = 1.5; ctx.strokeRect(15, ty, 130, 38);
+        ctx.fillStyle = 'white'; ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(t.name, 22, ty + 24);
+      }
+
+      // Construction Grid Lines
+      ctx.strokeStyle = '#222831'; ctx.lineWidth = 1;
+      for (let gx = 160; gx < canvas.width; gx += 40) {
+        ctx.beginPath(); ctx.moveTo(gx, 50); ctx.lineTo(gx, 430); ctx.stroke();
+      }
+      for (let gy = 50; gy <= 430; gy += 40) {
+        ctx.beginPath(); ctx.moveTo(160, gy); ctx.lineTo(canvas.width, gy); ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#45f3ff'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(160, 430); ctx.lineTo(canvas.width, 430); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(160, 50); ctx.lineTo(canvas.width, 50); ctx.stroke();
+
+      // Editor Grid Object Visual Scaling
+      ctx.save(); ctx.rect(160, 50, 790, 380); ctx.clip();
+      for (let item of customMap) {
+        let renderX = item.x - editorScrollX + 160;
+        ctx.shadowBlur = 4; ctx.shadowColor = item.type.includes('Spike') || item.type === 'spike' ? 'red' : 'cyan';
+        
+        if (item.type === 'block') {
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(renderX, item.y, item.w, item.h);
+          ctx.strokeStyle = '#00ffff'; ctx.strokeRect(renderX, item.y, item.w, item.h);
+        } else if (item.type === 'spike') {
+          ctx.fillStyle = '#ff4444'; ctx.beginPath();
+          ctx.moveTo(renderX + item.w/2, item.y); ctx.lineTo(renderX + item.w, item.y + item.h); ctx.lineTo(renderX, item.y + item.h); ctx.fill();
+        } else if (item.type === 'ceilSpike') {
+          ctx.fillStyle = '#ff4444'; ctx.beginPath();
+          ctx.moveTo(renderX + item.w/2, item.y + item.h); ctx.lineTo(renderX + item.w, item.y); ctx.lineTo(renderX, item.y); ctx.fill();
+        } else if (item.type === 'pad') {
+          ctx.fillStyle = '#ffeb3b'; ctx.fillRect(renderX, item.y, item.w, item.h);
+        } else if (item.type === 'wavePortal') {
+          ctx.fillStyle = '#ff00ff'; ctx.fillRect(renderX + 10, item.y, item.w - 20, item.h);
+        } else if (item.type === 'shipPortal') {
+          ctx.fillStyle = '#ff9f1c'; ctx.fillRect(renderX + 10, item.y, item.w - 20, item.h);
+        } else if (item.type === 'cubePortal') {
+          ctx.fillStyle = '#00ffff'; ctx.fillRect(renderX + 10, item.y, item.w - 20, item.h);
+        } else if (item.type === 'finish') {
+          ctx.fillStyle = '#ffeb3b'; ctx.fillRect(renderX, item.y, item.w, item.h);
+        }
+      }
+      ctx.restore(); ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#4f5d73'; ctx.fillRect(buttons.scrollLeft.x, buttons.scrollLeft.y, buttons.scrollLeft.w, buttons.scrollLeft.h);
+      ctx.fillRect(buttons.scrollRight.x, buttons.scrollRight.y, buttons.scrollRight.w, buttons.scrollRight.h);
+      ctx.fillStyle = 'white'; ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('◀ SCROLL L', buttons.scrollLeft.x + 25, buttons.scrollLeft.y + 22);
+      ctx.fillText('SCROLL R ▶', buttons.scrollRight.x + 25, buttons.scrollRight.y + 22);
+    } 
+
+    // ==========================================
+    // 3. RUNTIME LIVE PLAYER SYSTEM
+    // ==========================================
+    else {
+      // Glow boundary lines
+      ctx.shadowBlur = 15; ctx.shadowColor = '#00ffff';
+      ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(0, 430); ctx.lineTo(canvas.width, 430); ctx.stroke(); 
+      ctx.beginPath(); ctx.moveTo(0, 50); ctx.lineTo(canvas.width, 50); ctx.stroke();   
+      ctx.shadowBlur = 0;
+
+      if (gameState === "PLAYING") {
+        // Particles Trail Engine
+        if(Math.random() < 0.4) {
+          visualParticles.push({
+            x: player.x, y: player.y + player.size/2 + (Math.random()*15 - 7.5),
+            vx: -speedSetting * 0.5, vy: (Math.random() - 0.5) * 2,
+            size: Math.random() * 4 + 1, color: player.gameMode === "CUBE" ? '#00ffff' : '#ff9f1c', alpha: 0.8
+          });
+        }
+
+        if (player.gameMode === "CUBE") {
+          player.velocityY += player.gravity; player.y += player.velocityY;
+          if (player.y + player.size >= 430) {
+            player.y = 430 - player.size; player.velocityY = 0; player.isGrounded = true;
+          } else {
+            player.rotation += 0.09; // Clean air spins
+          }
+        } 
+        else if (player.gameMode === "WAVE") {
+          player.y += player.waveSpeedY * player.waveDirection;
+          waveTrail.push({ x: player.x + 25, y: player.y + (player.size / 2) });
+          if (waveTrail.length > 50) waveTrail.shift();
+          if (player.y <= 50 || player.y + player.size >= 430) {
+            createCrashParticles(player.x, player.y, 'red', 25); gameState = "GAMEOVER";
+          }
+        }
+        else if (player.gameMode === "SHIP") {
+          if (player.isHolding) player.velocityY += player.shipThrust;
+          else player.velocityY += player.shipGravity; 
+          
+          if (player.velocityY < -6) player.velocityY = -6;
+          if (player.velocityY > 5) player.velocityY = 5;
+          player.y += player.velocityY;
+
+          // Safe Boundaries rules preserved perfectly
+          if (player.y <= 50) { player.y = 50; player.velocityY = 0; }
+          if (player.y + player.size >= 430) { player.y = 430 - player.size; player.velocityY = 0; }
+        }
+
+        if (playMode === "NORMAL") {
+          spawnTimer++;
+          if (spawnTimer > spawnRateSetting) { spawnChallengePattern(); spawnTimer = 0; }
+        }
+
+        // Beautiful Neon Wave Trail
+        if (player.gameMode === "WAVE" && waveTrail.length > 1) {
+          ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = '#e74c3c';
+          ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 5; ctx.beginPath();
+          ctx.moveTo(waveTrail[0].x, waveTrail[0].y);
+          for (let t = 1; t < waveTrail.length; t++) {
+            waveTrail[t].x -= speedSetting; ctx.lineTo(waveTrail[t].x, waveTrail[t].y);
+          }
+          ctx.stroke(); ctx.restore();
+        }
+
+        let playerOnABlockThisFrame = false;
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          let obs = obstacles[i];
+          obs.x -= speedSetting; 
+
+          if (obs.type === 'spike' || obs.type === 'ceilSpike') {
+            ctx.fillStyle = '#ff4444';
+            ctx.shadowBlur = 8; ctx.shadowColor = 'red';
+            ctx.beginPath();
+            if (obs.type === 'spike') {
+              ctx.moveTo(obs.x + obs.w / 2, obs.y); ctx.lineTo(obs.x + obs.w, obs.y + obs.h); ctx.lineTo(obs.x, obs.y + obs.h);
+            } else {
+              ctx.moveTo(obs.x + obs.w / 2, obs.y + obs.h); ctx.lineTo(obs.x + obs.w, obs.y); ctx.lineTo(obs.x, obs.y);
+            }
+            ctx.fill(); ctx.shadowBlur = 0;
+            
+            if (player.x < obs.x + obs.w && player.x + player.size > obs.x &&
+                player.y < obs.y + obs.h && player.y + player.size > obs.y) {
+              createCrashParticles(player.x, player.y, '#ff4444', 30);
+              gameState = "GAMEOVER";
+            }
+          } 
+          else if (obs.type === 'block') {
+            // Neon Blocks
+            let blockGrad = ctx.createLinearGradient(obs.x, obs.y, obs.x, obs.y+obs.h);
+            blockGrad.addColorStop(0, '#1f4068'); blockGrad.addColorStop(1, '#162447');
+            ctx.fillStyle = blockGrad; ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+            ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2; ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+
+            if (player.x + player.size > obs.x && player.x < obs.x + obs.w) {
+              if (player.y + player.size >= obs.y && player.y + player.size - player.velocityY <= obs.y + 16) {
+                player.y = obs.y - player.size; player.velocityY = 0;
+                player.isGrounded = true; playerOnABlockThisFrame = true; player.rotation = 0;
+              } else if (player.y + player.size > obs.y + 4 && player.y < obs.y + obs.h) {
+                createCrashParticles(player.x, player.y, '#00ffff', 25);
+                gameState = "GAMEOVER";
+              }
+            }
+          } 
+          else if (obs.type === 'pad') {
+            // Glowing Jump Pad Look
+            ctx.fillStyle = '#ffeb3b'; ctx.shadowBlur = 10; ctx.shadowColor = '#ffeb3b';
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h); ctx.shadowBlur = 0;
+            if (player.x < obs.x + obs.w && player.x + player.size > obs.x &&
+                player.y + player.size >= obs.y && player.y < obs.y + obs.h) {
+              player.velocityY = -22; player.isGrounded = false; 
+              createCrashParticles(obs.x + 20, obs.y, '#ffeb3b', 15);
+            }
+          }
+          else if (obs.type.includes('Portal')) {
+            let pColor = obs.type === 'wavePortal' ? '#ff00ff' : obs.type === 'shipPortal' ? '#ff9f1c' : '#00ffff';
+            ctx.fillStyle = pColor; ctx.shadowBlur = 15; ctx.shadowColor = pColor;
+            ctx.fillRect(obs.x + 15, obs.y, obs.w - 30, obs.h); ctx.shadowBlur = 0;
+            
+            if (player.x + player.size >= obs.x && player.x <= obs.x + obs.w) {
+              if (obs.type === 'wavePortal' && player.gameMode !== "WAVE") { player.gameMode = "WAVE"; player.waveDirection = -1; }
+              if (obs.type === 'shipPortal' && player.gameMode !== "SHIP") { player.gameMode = "SHIP"; player.velocityY = 0; }
+              if (obs.type === 'cubePortal' && player.gameMode !== "CUBE") { player.gameMode = "CUBE"; player.velocityY = 0; }
+            }
+          }
+          else if (obs.type === 'finish') {
+            let sSize = 10;
+            for (let r = 0; r < obs.h / sSize; r++) {
+              for (let c = 0; c < obs.w / sSize; c++) {
+                ctx.fillStyle = (r + c) % 2 === 0 ? '#66fcf1' : '#0b0c10'; ctx.fillRect(obs.x + (c * sSize), obs.y + (r * sSize), sSize, sSize);
+              }
+            }
+            if (player.x >= obs.x) gameState = "VICTORY";
+          }
+
+          if (obs.x + obs.w < 0) { obstacles.splice(i, 1); score++; }
+        }
+
+        if (player.gameMode === "CUBE" && !playerOnABlockThisFrame && player.y < 380 && player.velocityY === 0) {
+          player.isGrounded = false;
+        }
+      }
+
+      // Live Particle Engine Updates
+      for(let p=visualParticles.length-1; p>=0; p--) {
+        let pt = visualParticles[p];
+        pt.x += pt.vx; pt.y += pt.vy;
+        if(pt.alpha) pt.alpha -= 0.02;
+        if(pt.alpha <= 0) { visualParticles.splice(p, 1); continue; }
+        ctx.fillStyle = pt.color; ctx.globalAlpha = pt.alpha;
+        ctx.fillRect(pt.x, pt.y, pt.size, pt.size);
+      }
+      ctx.globalAlpha = 1.0; // Reset canvas blending alpha
+
+      // --- RENDERING MAIN RIDER CHARACTERS ---
+      ctx.save();
+      ctx.shadowBlur = 10; ctx.shadowColor = '#00ffff';
+      if (player.gameMode === "CUBE") {
+        ctx.translate(player.x + player.size/2, player.y + player.size/2);
+        ctx.rotate(player.rotation);
+        ctx.fillStyle = '#00ffff'; ctx.fillRect(-player.size/2, -player.size/2, player.size, player.size);
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(-player.size/2, -player.size/2, player.size, player.size);
+        // Cool inside eye geometry
+        ctx.strokeRect(-12, -12, 8, 8); ctx.strokeRect(4, -12, 8, 8); ctx.fillRect(-14, 4, 28, 4);
+      } 
+      else if (player.gameMode === "WAVE") {
+        ctx.shadowColor = '#e74c3c';
+        ctx.fillStyle = '#e74c3c'; ctx.beginPath();
+        ctx.moveTo(player.x + player.size, player.y + (player.size / 2));
+        ctx.lineTo(player.x, player.y); ctx.lineTo(player.x, player.y + player.size);
+        ctx.closePath(); ctx.fill(); ctx.strokeStyle = 'white'; ctx.stroke();
+      }
+      else if (player.gameMode === "SHIP") {
+        ctx.shadowColor = '#ff9f1c';
+        ctx.fillStyle = '#ff9f1c'; ctx.fillRect(player.x, player.y + 10, player.size - 5, player.size - 20);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(player.x + 25, player.y + 15, 15, 10);
+        ctx.fillStyle = '#e71d36'; ctx.beginPath();
+        ctx.moveTo(player.x + 5, player.y + 20); ctx.lineTo(player.x + 18, player.y + 5); ctx.lineTo(player.x + 18, player.y + 35); ctx.fill();
+      }
+      ctx.restore();
+
+      // UI Texts Overlay
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px sans-serif';
+      if (playMode === "NORMAL") {
+        ctx.fillText('Score: ' + score + " / 70", 30, 92);
+        ctx.font = '13px sans-serif'; ctx.fillStyle = '#66fcf1';
+        ctx.fillText('Track Mode: ' + currentDifficulty, 30, 112);
+      } else {
+        ctx.fillText('Custom Workspace Running', 30, 92);
+      }
+
+      if (gameState === "GAMEOVER") {
+        ctx.fillStyle = 'rgba(11, 12, 16, 0.9)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ff4444'; ctx.font = 'bold 42px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('Boom! Crashed.', canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillStyle = '#ffffff'; ctx.font = '16px sans-serif';
+        ctx.fillText(playMode === "CUSTOM" ? 'Tap anywhere to edit grid mapping' : 'Tap screen to retry this difficulty', canvas.width / 2, canvas.height / 2 + 40);
+        ctx.textAlign = 'left'; 
+      }
+
+      if (gameState === "VICTORY") {
+        ctx.fillStyle = 'rgba(11, 12, 16, 0.95)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#2ecc71'; ctx.font = 'bold 46px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('TRACK COMPLETED! 🏅', canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillStyle = 'white'; ctx.font = '18px sans-serif';
+        ctx.fillText('You crushed it! Tap to return back home.', canvas.width / 2, canvas.height / 2 + 45);
+        ctx.textAlign = 'left'; 
+      }
+    }
+
+    requestAnimationFrame(update);
+  }
+
+  update();
+</script>
+</body>
+</html>
